@@ -1,0 +1,27 @@
+{
+  "roots": [
+    { "word": "bu", "flags": ["IS_NOUN"] },
+    { "word": "şu", "flags": ["IS_NOUN"] },
+    { "word": "o", "flags": ["IS_NOUN"] },
+    { "word": "ile", "flags": ["IS_NOUN"] },
+    { "word": "ve", "flags": ["IS_NOUN"] },
+    { "word": "sabah", "flags": ["IS_NOUN"] },
+    { "word": "bey", "flags": ["IS_NOUN"] },
+    { "word": "ev", "flags": ["IS_NOUN"] },
+    { "word": "ali", "flags": ["IS_PROPER_NOUN"] },
+    { "word": "gör", "flags": ["IS_VERB"] },
+    { "word": "sanık", "flags": ["IS_NOUN"], "domain": "LAW" },
+    { "word": "mahkeme", "flags": ["IS_NOUN"], "domain": "LAW" },
+    { "word": "avukat", "flags": ["IS_NOUN", "RESISTS_SOFTENING"], "domain": "LAW" },
+    { "word": "orman", "flags": ["IS_NOUN"], "domain": "NATURE" },
+    { "word": "av", "flags": ["IS_NOUN", "IS_VERB"], "domain": "NATURE" },
+    { "word": "yarın", "flags": [] },
+    { "word": "sabah", "flags": [] },
+    { "word": "sen", "flags": ["TAKES_THIN_SUFFIX"] },
+    { "word": "o", "flags": [] },
+    { "word": "de", "flags": [] },
+    { "word": "götür", "flags": ["IS_VERB"] },
+    { "word": "yap", "flags": ["IS_VERB"] },
+    { "word": "ora", "flags": [] }
+  ]
+}

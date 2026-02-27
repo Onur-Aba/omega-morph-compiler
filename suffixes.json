@@ -1,0 +1,138 @@
+{
+  "suffixes": [
+    {
+      "id": "DERIV_LIK",
+      "base_form": "lIk",
+      "flags": ["HARMONY_FOUR_WAY"],
+      "input_states": ["RootNoun"],
+      "output_state": "RootNoun"
+    },
+    {
+      "id": "DERIV_LA",
+      "base_form": "lA",
+      "flags": ["HARMONY_TWO_WAY"],
+      "input_states": ["RootNoun"],
+      "output_state": "RootVerb"
+    },
+    {
+      "id": "VOICE_PASSIVE_IL",
+      "base_form": "Il",
+      "flags": ["HARMONY_FOUR_WAY"],
+      "input_states": ["RootVerb"],
+      "output_state": "Voice"
+    },
+    {
+      "id": "PARTICIPLE_DIK",
+      "base_form": "dIk",
+      "flags": ["HARMONY_FOUR_WAY", "MUT_D_T", "MUT_G_K"],
+      "input_states": ["RootVerb", "Voice", "Negative"],
+      "output_state": "RootNoun" 
+    },
+    {
+      "id": "NEGATIVE_MA",
+      "base_form": "mA",
+      "flags": ["HARMONY_TWO_WAY"],
+      "input_states": ["RootVerb", "Voice"],
+      "output_state": "Negative"
+    },
+{
+      "id": "PLURAL_LER",
+      "base_form": "lAr",
+      "flags": ["HARMONY_TWO_WAY"],
+      "input_states": ["RootNoun", "Tense", "Copula"], 
+      "output_state": "Plural"
+    },
+    {
+      "id": "POSS_1PL",
+      "base_form": "ImIz",
+      "flags": ["HARMONY_FOUR_WAY"],
+      "input_states": ["RootNoun", "Plural"],
+      "output_state": "Possessive"
+    },
+    {
+      "id": "CASE_ABL",
+      "base_form": "dAn",
+      "flags": ["HARMONY_TWO_WAY", "MUT_D_T", "BUFFER_N"],
+      "input_states": ["RootNoun", "Plural", "Possessive"],
+      "output_state": "Case"
+    },
+    {
+      "id": "TENSE_FUT",
+      "base_form": "AcAk",
+      "flags": ["HARMONY_TWO_WAY", "BUFFER_Y", "MUT_G_K"],
+      "input_states": ["RootVerb", "Voice", "Negative"],
+      "output_state": "Tense"
+    },
+    {
+      "id": "PERSON_1SG_VERB",
+      "base_form": "Im",
+      "flags": ["HARMONY_FOUR_WAY", "BUFFER_Y"],
+      "input_states": ["Tense"],
+      "output_state": "Person"
+    },
+    {
+      "id": "QUESTION_MI",
+      "base_form": "mI",
+      "flags": ["HARMONY_FOUR_WAY"],
+      "input_states": ["RootNoun", "Plural", "Possessive", "Case", "Tense", "Person"],
+      "output_state": "Question"
+    },
+    {
+      "id": "CASE_GEN",
+      "base_form": "In",
+      "flags": ["HARMONY_FOUR_WAY", "BUFFER_N"],
+      "input_states": ["RootNoun", "Plural", "Possessive"],
+      "output_state": "Case"
+    },
+    {
+      "id": "POSS_3SG",
+      "base_form": "I",
+      "flags": ["HARMONY_FOUR_WAY", "BUFFER_S", "ADDS_PRON_N"],
+      "input_states": ["RootNoun", "Plural"],
+      "output_state": "Possessive"
+    },
+    {
+      "id": "PERSON_1PL",
+      "base_form": "Iz",
+      "flags": ["HARMONY_FOUR_WAY", "BUFFER_Y"],
+      "input_states": ["Tense"],
+      "output_state": "Person"
+    },
+{
+      "id": "CASE_INS",
+      "base_form": "lA",
+      "flags": ["HARMONY_TWO_WAY", "BUFFER_Y"],
+      "input_states": ["RootNoun", "Plural", "Possessive"],
+      "output_state": "Case"
+    },
+    {
+      "id": "DERIV_VERB_TO_NOUN_IM",
+      "base_form": "Im",
+      "flags": ["HARMONY_FOUR_WAY"],
+      "input_states": ["RootVerb"],
+      "output_state": "RootNoun"
+    },
+    {
+      "id": "DERIV_LI",
+      "base_form": "lI",
+      "flags": ["HARMONY_FOUR_WAY"],
+      "input_states": ["RootNoun"],
+      "output_state": "RootNoun"
+    },
+{
+      "id": "MACRO_COLLOQUIAL_FUTURE_1SG",
+      "base_form": "IcAm", 
+      "canonical_form": "AcAğIm", 
+      "flags": ["HARMONY_FOUR_WAY", "HARMONY_TWO_WAY"],
+      "input_states": ["RootVerb"],
+      "output_state": "Person"
+    },
+    {
+      "id": "NOUN_DATIVE",
+      "base_form": "A",
+      "flags": ["HARMONY_TWO_WAY", "BUFFER_Y"],
+      "input_states": ["RootNoun"],
+      "output_state": "EndOfWord"
+    }
+  ]
+}
