@@ -53,11 +53,13 @@ impl RootTrie {
     pub fn new() -> Self {
         RootTrie { root: RootNode::new() }
     }
-pub fn get_domain_fast(&self, _word: &str) -> Option<String> {
+
+    pub fn get_domain_fast(&self, _word: &str) -> Option<String> {
         // İleride ağaç düğümlerine (RootNode) domain eklediğimizde burası gerçek veriyi çekecek.
         // Şimdilik sistemin çökmemesi ve Kahin'in nötr kalması için "GENERAL" dönüyoruz.
         Some("GENERAL".to_string())
     }
+
     pub fn insert(&mut self, word: &str, dna_flags: u16) {
         let mut current_node = &mut self.root;
         for ch in word.chars() {
@@ -81,128 +83,110 @@ pub fn get_domain_fast(&self, _word: &str) -> Option<String> {
     // =========================================================================
     // OMEGA NOKTASI - LEVENSHTEIN AUTOMATON (BULANIK TARAMA)
     // =========================================================================
-    /// Trie ağacında hata toleranslı derinlemesine arama yapar.
     pub fn search_fuzzy(&self, token: &str, max_penalty: f32) -> Vec<FuzzyRootResult> {
+        let token_chars: Vec<char> = token.chars().collect();
         let mut results = Vec::new();
-        let chars: Vec<char> = token.chars().collect();
         
-        self.dfs_fuzzy(&self.root, &chars, 0, String::new(), 0.0, max_penalty, &mut results);
-        
-        // En düşük ceza puanlıları öne al
+        // DP Matrisinin ilk satırı (Kullanıcının girdiği kelime uzunluğu kadar)
+        let mut initial_row = vec![0.0; token_chars.len() + 1];
+        for i in 0..=token_chars.len() {
+            initial_row[i] = i as f32; // Başlangıç silme maliyetleri
+        }
+
+        for (&ch, child_node) in &self.root.children {
+            let mut path = String::new();
+            path.push(ch);
+            self.dfs_dp_automaton(
+                child_node, 
+                &token_chars, 
+                path, 
+                &initial_row, 
+                max_penalty, 
+                &mut results
+            );
+        }
+
         results.sort_by(|a, b| a.penalty.partial_cmp(&b.penalty).unwrap());
         results
     }
 
-fn dfs_fuzzy(
+    fn dfs_dp_automaton(
         &self,
         node: &RootNode,
         token_chars: &[char],
-        char_idx: usize,
         current_path: String,
-        current_penalty: f32,
+        prev_row: &[f32],
         max_penalty: f32,
         results: &mut Vec<FuzzyRootResult>
     ) {
-        // ZİRVE: Geçerli bir kök bulduk!
-        if node.is_end_of_word {
-            // DİNAMİK TOLERANS: Orijinal kökün uzunluğuna göre ceza sınırı. 
-            // Kullanıcı harf yutsa bile gerçek kök uzunluğuna göre esneklik sağlar.
-            let max_allowed_for_this_len = (current_path.chars().count() as f32) * 0.45;
+        let m = token_chars.len();
+        let mut current_row = vec![0.0; m + 1];
+        current_row[0] = prev_row[0] + 1.0; // Ağaçta ilerledikçe kullanıcı metninde yerinde sayma (Insertion to Tree)
+
+        let mut min_penalty_in_row = current_row[0];
+        let current_char = current_path.chars().last().unwrap();
+
+        for i in 1..=m {
+            let insert_cost = current_row[i - 1] + 1.0; // Kullanıcı fazladan harf basmış
+            let delete_cost = prev_row[i] + 1.0;        // Kullanıcı harf yutmuş
             
-            if current_penalty <= max_allowed_for_this_len && current_penalty <= max_penalty {
+            // Yer değiştirme veya eşleşme maliyeti
+            let sub_cost = prev_row[i - 1] + if token_chars[i - 1] == current_char { 
+                0.0 
+            } else { 
+                crate::core::distance::char_substitution_cost(token_chars[i - 1], current_char) 
+            };
+            
+            current_row[i] = f32::min(insert_cost, f32::min(delete_cost, sub_cost));
+            
+            if current_row[i] < min_penalty_in_row {
+                min_penalty_in_row = current_row[i];
+            }
+        }
+
+        // AGRESİF BUDAMA (Pruning): Eğer bu satırdaki en düşük ceza bile sınırı aştıysa, 
+        // bu dalın devamına (alt trilyonlarca ihtimale) bakma! Sonsuz evrenleri yok et!
+        if min_penalty_in_row > max_penalty {
+            return;
+        }
+
+        // Hedef Bulundu: Eğer ağaçta bir kelime bittiyse ve kullanıcının metniyle eşleşme cezası sınırın altındaysa
+        if node.is_end_of_word {
+            // Kullanıcının metninden kaç harf emdiğimizi bul (en düşük cezalı sütun)
+            let mut best_penalty = 1000.0;
+            let mut consumed_len = 0;
+            
+            // Sadece kelimenin anlamlı bir kısmını tüketmişse kabul et (Örn: en az %50'sini)
+            for i in 0..=m {
+                if current_row[i] <= max_penalty && current_row[i] < best_penalty {
+                    best_penalty = current_row[i];
+                    consumed_len = i;
+                }
+            }
+
+            if best_penalty <= max_penalty {
                 results.push(FuzzyRootResult {
                     root_word: current_path.clone(),
                     dna: node.flags,
-                    penalty: current_penalty,
-                    consumed_len: char_idx, // Kullanıcı metninden tam olarak kaç harf emdiğimizi bildirir!
-                    domain: "GENERAL".to_string(),
+                    penalty: best_penalty,
+                    consumed_len,
+                    domain: "GENERAL".to_string(), // Derleme hatası olmaması için eklendi.
                 });
             }
         }
 
-        // Eğer ceza limitini aştıysak bu paralel evreni anında yok et (Pruning)
-        if current_penalty > max_penalty {
-            return;
+        // Ağacın derinliklerine inmeye devam et
+        for (&ch, child_node) in &node.children {
+            let mut new_path = current_path.clone();
+            new_path.push(ch);
+            self.dfs_dp_automaton(
+                child_node,
+                token_chars,
+                new_path,
+                &current_row, // Kuantum durumu bir sonraki nesle aktarılır
+                max_penalty,
+                results
+            );
         }
-
-        // 1. ZAMAN ATLAMASI (Insertion - Kullanıcı klavyede fazladan harfe basmış)
-        // Kullanıcının metninde 1 harf ilerliyoruz ama Trie Ağacında (Kök Kütüphanesinde) ilerlemiyoruz!
-        if char_idx < token_chars.len() {
-            let ins_cost = 1.0; // Fazla harf cezası
-            if current_penalty + ins_cost <= max_penalty {
-                self.dfs_fuzzy(
-                    node,
-                    token_chars,
-                    char_idx + 1, // Kullanıcı metni atlandı
-                    current_path.clone(),
-                    current_penalty + ins_cost,
-                    max_penalty,
-                    results
-                );
-            }
-        }
-
-        for (&child_char, child_node) in &node.children {
-            // 2. GÖVDE ÇATALLANMASI (Deletion - Kullanıcı harf yutmuş, eksik yazmış)
-            // Ağaçta (Kütüphanede) ilerliyoruz, ama kullanıcının metninde yerimizde sayıyoruz!
-            let del_cost = 1.0; // Eksik harf cezası
-            if current_penalty + del_cost <= max_penalty {
-                let mut new_path = current_path.clone();
-                new_path.push(child_char);
-                self.dfs_fuzzy(
-                    child_node,
-                    token_chars,
-                    char_idx, // char_idx ARTMIYOR, kullanıcı metninde bekliyoruz
-                    new_path,
-                    current_penalty + del_cost,
-                    max_penalty,
-                    results
-                );
-            }
-
-            if char_idx < token_chars.len() {
-                let target_char = token_chars[char_idx];
-                
-                // 3. YERİNE KOYMA VEYA KUSURSUZ EŞLEŞME (Substitution / Match)
-                let sub_cost = char_substitution_cost(target_char, child_char);
-                if current_penalty + sub_cost <= max_penalty {
-                    let mut new_path = current_path.clone();
-                    new_path.push(child_char);
-                    self.dfs_fuzzy(
-                        child_node,
-                        token_chars,
-                        char_idx + 1,
-                        new_path,
-                        current_penalty + sub_cost,
-                        max_penalty,
-                        results
-                    );
-                }
-
-                // 4. TRANSPOZİSYON (Swapping - Harflerin yeri değişmiş, örn: gzö -> göz)
-                if char_idx + 1 < token_chars.len() {
-                    let next_target_char = token_chars[char_idx + 1];
-                    // Trie'de şu anki harf = kullanıcının bir sonraki harfi VE Trie'nin bir sonraki harfi = kullanıcının şu anki harfi
-                    if child_char == next_target_char {
-                        if let Some(grandchild_node) = child_node.children.get(&target_char) {
-                            let swap_cost = 0.5; // El sürçmesi, affedilebilir bir hata!
-                            if current_penalty + swap_cost <= max_penalty {
-                                let mut new_path = current_path.clone();
-                                new_path.push(child_char);
-                                new_path.push(target_char);
-                                self.dfs_fuzzy(
-                                    grandchild_node,
-                                    token_chars,
-                                    char_idx + 2, // 2 harf birden emdik
-                                    new_path,
-                                    current_penalty + swap_cost,
-                                    max_penalty,
-                                    results
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }}
+    }
+}

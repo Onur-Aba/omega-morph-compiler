@@ -28,6 +28,19 @@ struct RootDatabase { roots: Vec<RawRoot> }
 #[derive(Deserialize)]
 struct RawRoot { word: String, flags: Vec<String> }
 
+#[derive(Deserialize)]
+struct AbbrDatabase { abbreviations: std::collections::HashMap<String, String> }
+
+pub fn load_abbreviations_from_json(file_path: &str) -> std::collections::HashMap<String, String> {
+    if let Ok(data) = std::fs::read_to_string(file_path) {
+        if let Ok(db) = serde_json::from_str::<AbbrDatabase>(&data) {
+            println!("[SİSTEM] {} adet Kısaltma Sözlüğü yüklendi.", db.abbreviations.len());
+            return db.abbreviations;
+        }
+    }
+    std::collections::HashMap::new()
+}
+
 pub fn parse_flags(flags: &[String]) -> u16 {
     let mut bitmask = 0;
     for f in flags {

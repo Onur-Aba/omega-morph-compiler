@@ -106,12 +106,31 @@ impl MorphEngine {
         Ok((best_path.final_stem.clone(), best_path.total_penalty))
     }
 
-    fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, remaining: &str, root_word: &str, root_dna: u16, current_penalty: f32, valid_paths: &mut Vec<PathResult>) {
+fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, remaining: &str, root_word: &str, root_dna: u16, current_penalty: f32, valid_paths: &mut Vec<PathResult>) {
+        
         if remaining.is_empty() {
-            valid_paths.push(PathResult {
-                final_stem: current_stem.to_string(),
-                total_penalty: current_penalty,
-            });
+            // TÜRKÇE MUTLAK BİTİŞ KURALLARI:
+            // Kelime hangi ekleri aldıktan sonra yasal olarak cümlede durabilir?
+            let is_valid_termination = matches!(
+                current_state,
+                MorphState::RootNoun | MorphState::RootVerb |
+                MorphState::Case | MorphState::Person | MorphState::Copula |
+                MorphState::Tense | MorphState::Question | MorphState::EndOfWord |
+                MorphState::Possessive | MorphState::Plural // İsimler çoğul veya iyelikle de bitebilir
+            );
+                if current_stem.contains("ora") || current_stem.contains("götür") {
+                println!("  [X-RAY BİTİŞ] Kelime: '{}' | Durak: {:?} | Kabul Edildi mi: {}", 
+                    current_stem, current_state, is_valid_termination);
+            }
+            if is_valid_termination {
+                valid_paths.push(PathResult {
+                    final_stem: current_stem.to_string(),
+                    total_penalty: current_penalty,
+                });
+            } else {
+                // SESSİZ İPTAL: Kelime bitti ama FSM havada kaldı (Örn: Sadece Olumsuzluk eki alıp bitmiş 'gitme-').
+                // Bu yol çöpe atılır.
+            }
             return;
         }
 
@@ -119,11 +138,11 @@ impl MorphEngine {
             for suffix in suffixes {
                 // 1. KULLANICIYI ANLAMA (Puanlama için Sentez)
                 // "cAm" -> "cem" veya "cam" üretir.
-                let synthesized_for_match = synthesize_suffix(current_stem, root_dna, suffix.flags, &suffix.base_form);
+                let mut synthesized_for_match = synthesize_suffix(current_stem, root_dna, suffix.flags, &suffix.base_form);
                 
                 // 2. RESMİ ÇIKTI (Ekrana Basılacak Sentez)
                 // Eğer JSON'da "AcAğIm" tanımlıysa onu sentezle, yoksa normal sentezi kullan!
-                let synthesized_for_output = if let Some(ref canonical) = suffix.canonical_form {
+                let mut synthesized_for_output = if let Some(ref canonical) = suffix.canonical_form {
                     // Makro eki resmi formata çevir ("AcAğIm" -> "eceğim")
                     synthesize_suffix(current_stem, root_dna, suffix.flags, canonical)
                 } else {
@@ -137,6 +156,12 @@ impl MorphEngine {
                 let first_char_output = synthesized_for_output.chars().next().unwrap_or(' ');
                 let vowels = ['a', 'e', 'ı', 'i', 'o', 'ö', 'u', 'ü', 'A', 'E', 'I', 'İ', 'O', 'Ö', 'U', 'Ü'];
                 
+                let last_char = current_stem.chars().last().unwrap_or(' ');
+                let stem_ends_with_vowel = vowels.contains(&last_char);
+
+                // BUFFER S, N, Y Mantığı
+
+
                 // Ünsüz Yumuşaması Motoru (Hem eşleşme hem çıktı için ayrı ayrı çalışmalı)
                 if vowels.contains(&first_char_match) {
                     let mut can_soften = true;
@@ -164,6 +189,11 @@ impl MorphEngine {
                     // Yani "götür" + "eceğim" olur!
                     let new_stem = format!("{}{}", actual_stem_output, synthesized_for_output);
                     
+                    // X-RAY 1: Hangi ek nasıl sentezlendi?
+                    if actual_stem_output == "ora" || actual_stem_output.starts_with("götür") {
+                        println!("  [X-RAY] Gövde: '{}' | Ek: '{}' -> Üretilen: '{}' | Sonuç: '{}'", 
+                            actual_stem_output, suffix.id, synthesized_for_output, new_stem);
+                    }
                     self.traverse_fsm_viterbi(
                         suffix.output_state.clone(), 
                         &new_stem, 

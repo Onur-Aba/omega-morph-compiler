@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use crate::core::morph_engine::MorphEngine;
 use crate::core::tokenizer::{TokenObject, AnchorStatus};
 
@@ -9,11 +10,15 @@ use crate::core::tokenizer::{TokenObject, AnchorStatus};
 
 pub struct OmegaCompiler<'a> {
     pub engine: &'a MorphEngine,
+    pub l_abbr: HashMap<String, String>,
 }
 
 impl<'a> OmegaCompiler<'a> {
     pub fn new(engine: &'a MorphEngine) -> Self {
-        OmegaCompiler { engine }
+        OmegaCompiler { 
+            engine,
+            l_abbr: HashMap::new(),
+        }
     }
 
     /// Ham cümleyi alır, atomlarına böler, onarır ve birleştirir.
@@ -22,13 +27,6 @@ impl<'a> OmegaCompiler<'a> {
         println!("OMEGA COMPILER - D0 EVRENİ (TAM KAPASİTE ANALİZ)");
         println!("GİRDİ: [{}]", raw_sentence);
         println!("==================================================\n");
-
-        // BÖLÜM 1: KISALTMA SÖZLÜĞÜ (L_abbr) YÜKLEMESİ
-        let mut l_abbr = std::collections::HashMap::new();
-        l_abbr.insert("prof", "profesör");
-        l_abbr.insert("dr", "doktor");
-        l_abbr.insert("av", "avukat");
-        l_abbr.insert("tc", "türkiye"); // T.C. gibi durumlar için
 
         let mut n_in_total = 0;
         let mut n_decay_total = 0; // YENİ: Sönümlenen işaretler
@@ -77,31 +75,24 @@ impl<'a> OmegaCompiler<'a> {
 
             // BÖLÜM 4: GENİŞLEME VE SÖNÜMLENME (Mutation & Decay)
             let mut is_expanded = false;
-            let expected_decay_punct = '.'; // Genelde kısaltmalar noktayla biter
             
-            // Kullanıcının girdiği steril kelimenin ("profun") bizim sözlükteki kısaltmalarla ("prof") başlayıp başlamadığını kontrol et!
-            for (abbr, expanded) in l_abbr.iter() {
+            for (abbr, expanded) in self.l_abbr.iter() {
                 if active_token.normalized_text.starts_with(abbr) {
+                    let is_short_abbr = abbr.len() <= 2;
+                    let has_boundary_anchor = active_token.anchors.iter().any(|a| a.punct == '.' || a.punct == '\'');
                     
-                    // "profun" içinden "prof" u kes, geriye "un" kalsın.
+                    if is_short_abbr && !has_boundary_anchor { continue; } // Güvenlik duvarı
+
                     let suffix_part = &active_token.normalized_text[abbr.len()..]; 
-                    
-                    println!("  [GENİŞLEME] Kısaltma tespit edildi: '{}' -> '{}' + Ek: '{}'", abbr, expanded, suffix_part);
-                    
-                    // Yeni steril form: "profesör" + "un" = "profesörun"
                     active_token.normalized_text = format!("{}{}", expanded, suffix_part);
                     is_expanded = true;
 
-                    // Noktayı söndürme (Decay) işlemi: Kullanıcı nokta KOYDUYSA söndür, koymadıysa (sokak stili) boşver.
-                    if active_token.decay_punctuation(expected_decay_punct) {
+                    // GERÇEK DECAY (SÖNÜMLENME) İŞLEMİ
+                    if active_token.decay_punctuation('.') {
                         n_decay_total += 1;
-                        println!("  [SÖNÜMLENME] Kısaltma noktası imha edildi! N_decay: {}", n_decay_total);
-                    } else {
-                        // Eğer nokta yoksa ama kesme işareti varsa (Prof'un) onu da söndürebiliriz, çünkü "Profesör'ün" derken rekonstrüksiyon kesmeyi kendi de geri koyar veya koymaz (T_final formatına göre). 
-                        // Şimdilik sadece noktayı söndürüyoruz.
+                        // Matematiksel Denklem güncellendi: N_decay arttı.
                     }
-                    
-                    break; // Bir kısaltma bulduk, döngüden çık
+                    break;
                 }
             }
 

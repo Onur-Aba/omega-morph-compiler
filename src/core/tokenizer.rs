@@ -14,6 +14,15 @@ pub enum AnchorPos {
     Trailing, // Kelimenin içinde veya sonunda (Örn: Kesme, Nokta, Virgül)
 }
 
+// 1. Yeni Case Format Enum'ı
+#[derive(Debug, Clone, PartialEq)]
+pub enum CaseFormat {
+    LowerCase,
+    TitleCase,
+    UpperCase,
+    MixedCase(Vec<bool>), // Her harfin büyük/küçük durumunu tutar (Örn: McDonald)
+}
+
 #[derive(Debug, Clone)]
 pub struct Anchor {
     pub char_index: usize,
@@ -23,11 +32,12 @@ pub struct Anchor {
     pub pos: AnchorPos, // Yön eklendi
 }
 
+// 2. TokenObject struct'ındaki string'i bu enum ile değiştir
 #[derive(Debug, Clone)]
 pub struct TokenObject {
     pub normalized_text: String,
     pub anchors: Vec<Anchor>,
-    pub case_flag: String,
+    pub case_format: CaseFormat, // YENİ
 }
 
 impl TokenObject {
@@ -70,13 +80,21 @@ impl TokenObject {
             }
         }
 
-        let case_flag = if raw_text.chars().next().unwrap_or(' ').is_uppercase() {
-            "TitleCase".to_string()
+        // KUSURSUZ VAKA ANALİZİ
+        let alpha_chars: Vec<char> = raw_text.chars().filter(|c| c.is_alphabetic()).collect();
+        let case_format = if alpha_chars.is_empty() {
+            CaseFormat::LowerCase
+        } else if alpha_chars.iter().all(|c| c.is_lowercase()) {
+            CaseFormat::LowerCase
+        } else if alpha_chars.iter().all(|c| c.is_uppercase()) {
+            CaseFormat::UpperCase
+        } else if alpha_chars[0].is_uppercase() && alpha_chars[1..].iter().all(|c| c.is_lowercase()) {
+            CaseFormat::TitleCase
         } else {
-            "LowerCase".to_string()
+            CaseFormat::MixedCase(alpha_chars.iter().map(|c| c.is_uppercase()).collect())
         };
 
-        TokenObject { normalized_text: normalized, anchors, case_flag }
+        TokenObject { normalized_text: normalized, anchors, case_format }
     }
 
     pub fn get_n_in(&self) -> usize {
@@ -104,7 +122,7 @@ impl TokenObject {
         TokenObject {
             normalized_text: merged_normalized,
             anchors: merged_anchors,
-            case_flag: self.case_flag.clone(), // İlk kelimenin formatı korunur
+            case_format: self.case_format.clone(), // İlk kelimenin formatı korunur
         }
     }
 
@@ -121,14 +139,28 @@ impl TokenObject {
         let mut final_chars: Vec<char> = corrected_stem.chars().collect();
 
         // Formatı geri yükle (Büyük/Küçük harf koruması)
-        if self.case_flag == "TitleCase" && !final_chars.is_empty() {
-            let first_char = final_chars[0];
-            let upper_char = match first_char {
-                'ı' => 'I',
-                'i' => 'İ',
-                _ => first_char.to_uppercase().next().unwrap_or(first_char),
-            };
-            final_chars[0] = upper_char;
+        match &self.case_format {
+            CaseFormat::UpperCase => {
+                final_chars = final_chars.into_iter()
+                    .map(|c| match c { 'ı' => 'I', 'i' => 'İ', _ => c.to_uppercase().next().unwrap_or(c) })
+                    .collect();
+            },
+            CaseFormat::TitleCase => {
+                if !final_chars.is_empty() {
+                    let first = final_chars[0];
+                    final_chars[0] = match first { 'ı' => 'I', 'i' => 'İ', _ => first.to_uppercase().next().unwrap_or(first) };
+                }
+            },
+            CaseFormat::MixedCase(mask) => {
+                // Özel harf formatı (Eğer düzeltilmiş kelime orijinalinden çok sapmadıysa maskeyi uygula)
+                for i in 0..std::cmp::min(final_chars.len(), mask.len()) {
+                    if mask[i] {
+                        let c = final_chars[i];
+                        final_chars[i] = match c { 'ı' => 'I', 'i' => 'İ', _ => c.to_uppercase().next().unwrap_or(c) };
+                    }
+                }
+            },
+            CaseFormat::LowerCase => {} // Zaten küçük harf
         }
 
         for anchor in active_anchors {
