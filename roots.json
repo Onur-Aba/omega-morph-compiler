@@ -1181,7 +1181,7 @@
 {"word":"tasma","flags":["IS_NOUN"],"domain":"OBJECT"},
 {"word":"tava","flags":["IS_NOUN"],"domain":"OBJECT"},
 {"word":"tavan","flags":["IS_NOUN"],"domain":"OBJECT"},
-{"word":"tebeşir","flags":["IS_NOUN"],"domain":"OBJECT"},
+{"word":"tebeşir","flags":["IS_NOUN"],"domain":"OBJECT"}, 
 { "word": "işlem", "flags": ["IS_NOUN"]},
 {"word":"teker","flags":["IS_NOUN"],"domain":"OBJECT"},
 {"word":"tekne","flags":["IS_NOUN"],"domain":"OBJECT"},

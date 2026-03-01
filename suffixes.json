@@ -25,7 +25,7 @@
     { "id": "MASTAR_IS", "base_form": "Is", "flags": ["HARMONY_FOUR_WAY", "BUFFER_I"], "input_states": ["RootVerb", "Voice", "Negative"], "output_state": "RootNoun" },
     { "id": "PARTICIPLE_DIK", "base_form": "dIk", "flags": ["HARMONY_FOUR_WAY", "MUT_D_T", "MUT_G_K"], "input_states": ["RootVerb", "Voice", "Negative"], "output_state": "RootNoun" },
 
-
+ 
     { "id": "VOICE_PASSIVE_IL", "base_form": "Il", "flags": ["HARMONY_FOUR_WAY", "BUFFER_I"], "input_states": ["RootVerb"], "output_state": "Voice" },
     { "id": "VOICE_PASSIVE_IN", "base_form": "In", "flags": ["HARMONY_FOUR_WAY", "BUFFER_I"], "input_states": ["RootVerb"], "output_state": "Voice" },
     { "id": "VOICE_CAUSATIVE_DIR", "base_form": "dIr", "flags": ["HARMONY_FOUR_WAY", "MUT_D_T"], "input_states": ["RootVerb", "Voice"], "output_state": "Voice" },
