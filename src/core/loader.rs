@@ -3,7 +3,7 @@
 use std::fs;
 use serde::Deserialize;
 use crate::core::suffix_fsm::*;
-use crate::core::root_trie::*;
+// Kullanılmayan `crate::core::root_trie::*` içe aktarımı silindi. (Uyarıyı çözer)
 use crate::core::morph_engine::MorphEngine;
 
 // 1. Bitmask Sabitlerine BUFFER_I'yı ekle (Eğer yoksa dosyanın başına ekle)
@@ -26,7 +26,16 @@ struct RawSuffix {
 struct RootDatabase { roots: Vec<RawRoot> }
 
 #[derive(Deserialize)]
-struct RawRoot { word: String, flags: Vec<String> }
+struct RawRoot { 
+    word: String, 
+    flags: Vec<String>,
+    #[serde(default = "default_domain")] // YENİ: Domain yazmıyorsa GENERAL olsun
+    domain: String, 
+}
+
+fn default_domain() -> String {
+    "GENERAL".to_string()
+}
 
 #[derive(Deserialize)]
 struct AbbrDatabase { abbreviations: std::collections::HashMap<String, String> }
@@ -65,7 +74,10 @@ pub fn parse_flags(flags: &[String]) -> u16 {
             "IS_PROPER_NOUN" => bitmask |= crate::core::root_trie::IS_PROPER_NOUN,
             "IS_VERB" => bitmask |= crate::core::root_trie::IS_VERB,
             "RESISTS_SOFTENING" => bitmask |= crate::core::root_trie::RESISTS_SOFTENING,
+            "IS_TRANSITIVE" => bitmask |= crate::core::root_trie::IS_TRANSITIVE,     // YENİ EKLENDİ
+            "IS_INTRANSITIVE" => bitmask |= crate::core::root_trie::IS_INTRANSITIVE, // YENİ EKLENDİ
             "IS_NOUN" => {}, // MÜHÜR: İsim bayrağı uyarı vermesin!
+            "IS_ADJECTIVE" => {}, // YENİ EKLENDİ: Uyarı vermesin!
             _ => println!("[UYARI] Bilinmeyen bayrak: {}", f),
         }
     }
@@ -103,7 +115,25 @@ pub fn load_roots_from_json(engine: &mut MorphEngine, file_path: &str) {
     let db: RootDatabase = serde_json::from_str(&data).expect("[KRİTİK HATA] Root JSON bozuk!");
     for raw in db.roots {
         let dna = parse_flags(&raw.flags);
-        engine.root_dict.insert(&raw.word, dna);
+        // HATA ÇÖZÜLDÜ: get_domain_fast'te tanımlı olan &raw.domain yerine `insert` için doğru imzayı kullanıyoruz
+        // (Çünkü root_trie'de `insert` metodu artık 3. parametre olarak `&str` domain alıyor)
+        engine.root_dict.insert(&raw.word, dna, &raw.domain); 
     }
     println!("[SİSTEM] Kökler Trie ağına yüklendi.");
+}
+
+// ==========================================
+// YENİ EKLENDİ: DOMAIN MATRIX YÜKLEYİCİ
+// ==========================================
+pub fn load_domain_matrix_from_json(engine: &mut MorphEngine, file_path: &str) {
+    let data = fs::read_to_string(file_path).expect("[KRİTİK HATA] domain_matrix.json okunamadı!");
+    
+    // JSON yapısı doğrudan bir Map ("ANA_DOMAIN" -> ["KARDEŞ1", "KARDEŞ2"]) olduğu için 
+    // ekstra bir ara struct'a ihtiyaç duymadan doğrudan Deserialize ediyoruz.
+    let matrix: std::collections::HashMap<String, Vec<String>> = serde_json::from_str(&data)
+        .expect("[KRİTİK HATA] Domain Matrix JSON formatı bozuk!");
+    
+    engine.domain_matrix = matrix;
+    
+    println!("[SİSTEM] Semantik Domain Matrisi (Kardeş Alanlar) Engine'e yüklendi.");
 }

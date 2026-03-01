@@ -5,17 +5,34 @@ use core::loader::{load_fsm_from_json, load_roots_from_json};
 use core::compiler::OmegaCompiler;
 
 fn main() {
-    println!("Omega Noktası - Cümle İşleyici (Compiler Pipeline) Aktif...\n");
+    println!("==================================================");
+    println!("OMEGA NOKTASI - ÇEKİRDEK BAŞLATILIYOR...");
+    println!("==================================================\n");
 
+    // 1. Motoru ve Belleği İnşa Et
     let mut engine = MorphEngine::new(RootTrie::new());
+    
+    // 2. Veritabanlarını (Beyni) Yükle
     load_fsm_from_json(&mut engine, "suffixes.json");
     load_roots_from_json(&mut engine, "roots.json"); 
 
+    // Not: Eğer kısaltma sözlüğünü (abbreviations.json) loader'a bağladıysan 
+    // ve OmegaCompiler::new() onu parametre olarak bekliyorsa, buraya ekleyebilirsin.
+    // Şimdilik standart kurucu ile devam ediyoruz.
     let compiler = OmegaCompiler::new(&engine);
 
-    // TEST 1: Koca Bir Cümle!
-    // İçinde büyük harfler, noktalama işaretleri, fazladan boşluklar ve FSM hataları (yapılmeyacakmı, tanıdıklarımızden) var.
-let raw_sentence = "yarın sabah seni de oraya götürücem";
+    // 3. Ham Girdi (Kullanıcı Verisi)
+    let raw_sentence = "bugun evraga aykiri islem yapinca saatinda ormana kacucam";
     
-    compiler.compile_multiverse(raw_sentence);
+    println!("[GİRDİ]: {}", raw_sentence);
+    println!("--------------------------------------------------");
+
+    // 4. Orkestratörü Ateşle!
+    // Hiyerarşi: Multiverse (Parçalar) -> Sentence (DAG Matrisi) -> FSM -> Phonology
+    let final_output = compiler.compile_multiverse(raw_sentence);
+
+    // 5. Mutlak Çıktı
+    println!("--------------------------------------------------");
+    println!("[MUTLAK ÇIKTI]: {}", final_output);
+    println!("==================================================\n");
 }

@@ -18,17 +18,20 @@ pub const CHANGES_ROOT_ON_DATIVE: u16 = 1 << 10;
 pub const IS_ABBREVIATION: u16        = 1 << 11;
 pub const IS_NUMBER: u16              = 1 << 12;
 pub const IS_VERB: u16                = 1 << 13; // EKLENDİ: Bu kök bir fiildir. (0010000000000000)
+pub const IS_TRANSITIVE: u16          = 1 << 14; // Nesne Alır (Örn: okumak -> kitabı okumak)
+pub const IS_INTRANSITIVE: u16        = 1 << 15; // Nesne Almaz (Örn: uyumak -> kitabı
 
 #[derive(Debug, Clone)]
 pub struct RootNode {
     pub children: BTreeMap<char, RootNode>,
     pub is_end_of_word: bool,
     pub flags: u16,
+    pub domain: String, // YENİ EKLENDİ
 }
 
 impl RootNode {
     pub fn new() -> Self {
-        RootNode { children: BTreeMap::new(), is_end_of_word: false, flags: 0 }
+        RootNode { children: BTreeMap::new(), is_end_of_word: false, flags: 0, domain: "GENERAL".to_string() }
     }
 }
 
@@ -54,19 +57,36 @@ impl RootTrie {
         RootTrie { root: RootNode::new() }
     }
 
-    pub fn get_domain_fast(&self, _word: &str) -> Option<String> {
-        // İleride ağaç düğümlerine (RootNode) domain eklediğimizde burası gerçek veriyi çekecek.
-        // Şimdilik sistemin çökmemesi ve Kahin'in nötr kalması için "GENERAL" dönüyoruz.
-        Some("GENERAL".to_string())
+    pub fn get_domain_fast(&self, word: &str) -> Option<String> {
+        let mut current_node = &self.root;
+        let mut last_valid_domain = "GENERAL".to_string();
+
+        // OMEGA NOKTASI - PREFIX (ÖN EK) DOMAİN TARAMASI
+        // "saatinda" kelimesi ağaca girer. 's', 'a', 'a', 't' düğümlerinden geçer.
+        // 't' düğümünde is_end_of_word = true ve domain = "TIME" görür. Bunu hafızaya alır!
+        // Sonra 'i' harfini bulamayıp kopsa bile, hafızasındaki "TIME" bilgisini geri döndürür!
+        for ch in word.chars() {
+            match current_node.children.get(&ch) {
+                Some(node) => {
+                    current_node = node;
+                    if current_node.is_end_of_word && current_node.domain != "GENERAL" {
+                        last_valid_domain = current_node.domain.clone();
+                    }
+                },
+                None => break,
+            }
+        }
+        Some(last_valid_domain)
     }
 
-    pub fn insert(&mut self, word: &str, dna_flags: u16) {
+    pub fn insert(&mut self, word: &str, dna_flags: u16, domain: &str) { // YENİ: domain parametresi eklendi
         let mut current_node = &mut self.root;
         for ch in word.chars() {
             current_node = current_node.children.entry(ch).or_insert_with(RootNode::new);
         }
         current_node.is_end_of_word = true;
         current_node.flags = dna_flags;
+        current_node.domain = domain.to_string(); // YENİ
     }
 
     pub fn search_exact(&self, word: &str) -> Option<u16> {
@@ -120,21 +140,26 @@ impl RootTrie {
         results: &mut Vec<FuzzyRootResult>
     ) {
         let m = token_chars.len();
-        let mut current_row = vec![0.0; m + 1];
-        current_row[0] = prev_row[0] + 1.0; // Ağaçta ilerledikçe kullanıcı metninde yerinde sayma (Insertion to Tree)
+        
+        // ==========================================
+        // OMEGA NOKTASI - ZERO-ALLOCATION (SIFIR HEAP KOPYASI)
+        // ==========================================
+        // Vektör klonlamak yerine Stack (Yığın) üzerinde sabit 32 boyutlu dizi açıyoruz.
+        // Bir kelime en fazla 31 harf olabilir. O(V) bellek maliyeti O(1)'e düştü!
+        let mut current_row = [0.0; 32]; 
+        current_row[0] = prev_row[0] + 1.0; 
 
         let mut min_penalty_in_row = current_row[0];
         let current_char = current_path.chars().last().unwrap();
 
         for i in 1..=m {
-            let insert_cost = current_row[i - 1] + 1.0; // Kullanıcı fazladan harf basmış
-            let delete_cost = prev_row[i] + 1.0;        // Kullanıcı harf yutmuş
+            let insert_cost = current_row[i - 1] + 1.0; 
+            let delete_cost = prev_row[i] + 1.0;        
             
-            // Yer değiştirme veya eşleşme maliyeti
             let sub_cost = prev_row[i - 1] + if token_chars[i - 1] == current_char { 
                 0.0 
             } else { 
-                crate::core::distance::char_substitution_cost(token_chars[i - 1], current_char) 
+                char_substitution_cost(current_char, token_chars[i - 1]) 
             };
             
             current_row[i] = f32::min(insert_cost, f32::min(delete_cost, sub_cost));
@@ -144,20 +169,13 @@ impl RootTrie {
             }
         }
 
-        // AGRESİF BUDAMA (Pruning): Eğer bu satırdaki en düşük ceza bile sınırı aştıysa, 
-        // bu dalın devamına (alt trilyonlarca ihtimale) bakma! Sonsuz evrenleri yok et!
-        if min_penalty_in_row > max_penalty {
-            return;
-        }
+        if min_penalty_in_row > max_penalty { return; }
 
-        // Hedef Bulundu: Eğer ağaçta bir kelime bittiyse ve kullanıcının metniyle eşleşme cezası sınırın altındaysa
         if node.is_end_of_word {
-            // Kullanıcının metninden kaç harf emdiğimizi bul (en düşük cezalı sütun)
             let mut best_penalty = 1000.0;
             let mut consumed_len = 0;
             
-            // Sadece kelimenin anlamlı bir kısmını tüketmişse kabul et (Örn: en az %50'sini)
-            for i in 0..=m {
+            for i in (0..=m).rev() {
                 if current_row[i] <= max_penalty && current_row[i] < best_penalty {
                     best_penalty = current_row[i];
                     consumed_len = i;
@@ -170,12 +188,11 @@ impl RootTrie {
                     dna: node.flags,
                     penalty: best_penalty,
                     consumed_len,
-                    domain: "GENERAL".to_string(), // Derleme hatası olmaması için eklendi.
+                    domain: node.domain.clone(),
                 });
             }
         }
 
-        // Ağacın derinliklerine inmeye devam et
         for (&ch, child_node) in &node.children {
             let mut new_path = current_path.clone();
             new_path.push(ch);
@@ -183,7 +200,7 @@ impl RootTrie {
                 child_node,
                 token_chars,
                 new_path,
-                &current_row, // Kuantum durumu bir sonraki nesle aktarılır
+                &current_row[..m + 1], // Slice olarak fonksiyona geçirilir
                 max_penalty,
                 results
             );

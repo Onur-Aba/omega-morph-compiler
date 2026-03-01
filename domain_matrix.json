@@ -1,0 +1,6 @@
+{
+  "ANIMAL": ["NATURE", "FOOD", "SOUND"],
+  "NATURE": ["ANIMAL", "SCIENCE", "TIME"],
+  "LAW": ["ABSTRACT", "TIME"],
+  "ABSTRACT": ["LAW", "TIME", "SOUND"]
+}

@@ -101,6 +101,17 @@ impl TokenObject {
         self.anchors.len()
     }
 
+    // YENİ: Dışarıdan hayalet (Ghost) işaret enjekte et
+    pub fn inject_ghost(&mut self, punct: char) {
+        self.anchors.push(Anchor {
+            char_index: self.normalized_text.chars().count(), // Kelimenin en sonuna ekle
+            orig_index: self.anchors.len(), // Struct kuralı
+            punct,
+            status: AnchorStatus::Ghost,
+            pos: AnchorPos::Trailing, // Hayaletler genelde kelime sonuna eklenir (Örn: kesme işareti)
+        });
+    }
+
     // 3. KRİTİK YAMA: Tokenleri String olarak değil, Vektör olarak birleştir (İndeksleri koru)
     pub fn merge(&self, other: &TokenObject) -> TokenObject {
         let merged_normalized = format!("{}{}", self.normalized_text, other.normalized_text);
@@ -127,8 +138,9 @@ impl TokenObject {
     }
 
     pub fn reconstruct(&self, corrected_stem: &str) -> Result<String, String> {
+        // Ghost ve Active olanları al, Decayed olanları (Sönümlenmiş) uçur!
         let mut active_anchors: Vec<&Anchor> = self.anchors.iter()
-            .filter(|a| a.status == AnchorStatus::Active)
+            .filter(|a| a.status != AnchorStatus::Decayed)
             .collect();
         
         // Zafiyet Kapatıldı: Sondan başa doğru ekle ki indeksler kaymasın!
@@ -176,6 +188,7 @@ impl TokenObject {
 
         Ok(final_chars.into_iter().collect())
     }
+    
     // BÖLÜM 4: SÖNÜMLENME YETENEĞİ (Decay)
     pub fn decay_punctuation(&mut self, target_punct: char) -> bool {
         // Sondan başa doğru ara ki, "Prof.'un" içindeki son noktayı (kesmeyi değil) bulsun

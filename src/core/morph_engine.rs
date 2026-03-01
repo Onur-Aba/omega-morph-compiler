@@ -1,25 +1,33 @@
 #![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(unused_assignments)]
 
 use std::collections::HashMap;
 use crate::core::root_trie::{RootTrie, IS_VERB, RESISTS_SOFTENING};
 use crate::core::suffix_fsm::{MorphState, SuffixNode};
 use crate::core::phonology::synthesize_suffix;
 
-
 #[derive(Debug, Clone)]
 pub struct PathResult {
     pub final_stem: String,
     pub total_penalty: f32,
+    pub final_state: MorphState, // YENİ: Kelimenin bittiği durak
 }
 
 pub struct MorphEngine {
     pub root_dict: RootTrie,
     pub suffix_graph: HashMap<MorphState, Vec<SuffixNode>>,
+    pub domain_matrix: HashMap<String, Vec<String>>, // YENİ: Semantik Kardeşlik Matrisi
 }
 
 impl MorphEngine {
     pub fn new(root_dict: RootTrie) -> Self {
-        MorphEngine { root_dict, suffix_graph: HashMap::new() }
+        MorphEngine { 
+            root_dict, 
+            suffix_graph: HashMap::new(),
+            domain_matrix: HashMap::new(), // YENİ: Başlangıçta boş atıyoruz
+        }
     }
 
     pub fn register_suffix_route(&mut self, from_state: MorphState, suffix: SuffixNode) {
@@ -30,12 +38,13 @@ impl MorphEngine {
     pub fn parse_with_correction(
         &self, 
         token: &str, 
-        active_domains: &[String] // O an cümlede aktif olan semantik enerjiler
-    ) -> Result<(String, f32), String> {
+        active_domains: &HashMap<String, f32> // O an cümlede aktif olan semantik enerjiler
+    ) -> Result<(String, f32, MorphState), String> { // DÖNÜŞ TİPİ GÜNCELLENDİ
         println!("--- Tam Otonom Toleranslı Tarama Başlıyor: [{}] ---", token);
         
-        // 1. Olası tüm kökleri bulanık tarama (Fuzzy Search) ile ağaçtan kopar (Maksimum ceza: 1.5)
-        let possible_roots = self.root_dict.search_fuzzy(token, 1.5);
+        // 1. Olası tüm kökleri bulanık tarama (Fuzzy Search) ile ağaçtan kopar 
+        // Tolerans 1.3 yapıldı ki 'islem' ararken 'işlem' kökü (s->ş farkı) budanıp yok olmasın!
+        let possible_roots = self.root_dict.search_fuzzy(token, 1.3);
         
         if possible_roots.is_empty() {
             return Err(format!("[HATA] '{}' için hiçbir mantıklı kök bulunamadı.", token));
@@ -43,27 +52,91 @@ impl MorphEngine {
 
         let mut valid_paths = Vec::new();
 
+        // Kuantum Belleği (Aynı State ve aynı Remaining Text için en düşük cezayı tutar)
+        // Eğer bu noktaya daha önce daha iyi bir skorla geldiysek, dallanmayı durdurur. O(B^D) -> O(V+E)
+        let mut memo: HashMap<(MorphState, usize), f32> = HashMap::new();
+
         // 2. Bulunan her kök adayı için FSM trenini çalıştır
         for root_candidate in possible_roots {
-            // UTF-8 Güvenli Kesim (Kökün tükettiği harf sayısına göre kelimenin kalanını bul)
-            let char_indices: Vec<(usize, char)> = token.char_indices().collect();
+            // ==========================================
+            // OMEGA NOKTASI - SAHTE YUMUŞAMA KALKANI (ANTI-SOFTENING)
+            // ==========================================
+            // Kullanıcı "hukuga" yazdı, kök "hukuk" bulundu.
+            // Kök yumuşamayı reddediyorsa (RESISTS_SOFTENING), kalan kısımdaki (Örn: "ga") 
+            // ilk harfin o sahte yumuşama olup olmadığını kontrol et ve düzelt!
+            let mut current_token = token.to_string();
             
+            if (root_candidate.dna & crate::core::root_trie::RESISTS_SOFTENING) != 0 {
+                if let Some(last_root_char) = root_candidate.root_word.chars().last() {
+                    if ['p', 'ç', 't', 'k'].contains(&last_root_char) {
+                        let consumed = root_candidate.consumed_len;
+                        let token_chars: Vec<char> = token.chars().collect();
+                        
+                        // Kullanıcının yazdığı kelimede kökün bittiği yerdeki harfe bak
+                        if consumed > 0 && consumed <= token_chars.len() {
+                            let user_char = token_chars[consumed - 1];
+                            
+                            // Kullanıcı k yerine g/ğ, t yerine d yazmışsa ve bu kök yumuşamıyorsa!
+                            if (last_root_char == 'k' && (user_char == 'ğ' || user_char == 'g')) ||
+                               (last_root_char == 't' && user_char == 'd') ||
+                               (last_root_char == 'p' && user_char == 'b') ||
+                               (last_root_char == 'ç' && user_char == 'c') {
+                                
+                                // Kelimeyi kullanıcının yazdığı o bozuk harften kurtar
+                                // (Örn: "hukuga" kelimesini "hukuka" yap ki FSM kalan "a" ekini net görsün!)
+                                let mut fixed_chars = token_chars.clone();
+                                fixed_chars[consumed - 1] = last_root_char;
+                                current_token = fixed_chars.into_iter().collect();
+                            }
+                        }
+                    }
+                }
+            }
+
+            // UTF-8 Güvenli Kesim (Artık düzeltilmiş current_token üzerinden kalan eki buluruz)
+            let char_indices: Vec<(usize, char)> = current_token.char_indices().collect();
             let remaining = if root_candidate.consumed_len < char_indices.len() {
                 let split_byte_index = char_indices[root_candidate.consumed_len].0;
-                &token[split_byte_index..]
+                &current_token[split_byte_index..]
             } else {
                 "" // Kök kelimenin tamamını tükettiyse ek kalmamıştır
             };
 
+            // ==========================================
+            // OMEGA NOKTASI - SEMANTİK REZONANS (MUTLAK KÖK KORUMASI)
+            // ==========================================
             let mut context_penalty = root_candidate.penalty;
 
-            // ==========================================
-            // OMEGA NOKTASI - SEMANTİK REZONANS
-            // ==========================================
-            // Eğer bu kökün ait olduğu domain, cümlenin aktif domainleri içindeyse: BONUS!
-            if active_domains.contains(&root_candidate.domain) {
-                context_penalty -= 2.0; // Ağır bir bağlam indirimi!
-                println!("  [REZONANS] '{}' kelimesi cümlenin '{}' enerjisiyle eşleşti! Bonus uygulandı.", root_candidate.root_word, root_candidate.domain);
+            if root_candidate.domain == "GENERAL" {
+                // FİİLLER: Nötr.
+            } else if let Some(&bonus) = active_domains.get(&root_candidate.domain) {
+                let root_len = root_candidate.root_word.chars().count();
+                let remaining_len = remaining.chars().count();
+                
+                // MİMARİ KURAL 1: Kök kısacık (1-3 harf) ve ek kısmı kökten daha uzunsa bu bir halüsinasyondur!
+                // "aykiri" kelimesinden "ay" çıkarıp geriye koca bir "kiri" bırakmasın.
+                let safe_bonus = if root_len <= 3 && remaining_len > root_len {
+                    0.0 // Kısa köklere hiç ödül verme ki "aykiri"yi "ay" zannetmesin!
+                } else {
+                    bonus
+                };
+                
+                context_penalty -= safe_bonus;
+            }
+
+            // MİMARİ KURAL 2: Orijinal kelime ile (Örn: "aykiri") kök (Örn: "ay") arasındaki HARF FARKI 
+            // ne kadar büyükse (yani "remaining" ne kadar uzunsa), kök o kadar "Uydurmadır".
+            // Kök dışı kalan her harf için sisteme GİZLİ CEZA BİNDİR! 
+            // "aykiri" kökünde remaining = "", ceza: 0.0
+            // "ay" kökünde remaining = "kiri", ceza: 4 harf * 0.5 = +2.0! (Böylece "ay" kökü asla seçilemez)
+            let remaining_char_count = remaining.chars().count();
+            if remaining_char_count > 0 {
+                context_penalty += (remaining_char_count as f32) * 0.4;
+            }
+
+            // MİMARİ KURAL 3: Başlangıç cezası hiçbir şekilde negatif olamaz.
+            if context_penalty < 0.0 {
+                context_penalty = 0.0;
             }
 
             println!("  [KÖK ADAYI DENENİYOR] Kök: '{}' (Ceza: {}) | Kalan: '{}'", 
@@ -80,10 +153,11 @@ impl MorphEngine {
                 start_state,
                 &root_candidate.root_word,
                 remaining,
-                &root_candidate.root_word, // YENİ EKLENDİ (Kökün kendisini referans olarak gönderiyoruz)
+                &root_candidate.root_word, // Kökün kendisini referans olarak gönderiyoruz
                 root_candidate.dna,
                 context_penalty, // Kökten gelen ceza puanını aktar
-                &mut valid_paths
+                &mut valid_paths,
+                &mut memo
             );
         }
 
@@ -103,11 +177,21 @@ impl MorphEngine {
         //         best_path.final_stem, best_path.total_penalty);
         // }
 
-        Ok((best_path.final_stem.clone(), best_path.total_penalty))
+        Ok((best_path.final_stem.clone(), best_path.total_penalty, best_path.final_state.clone()))
     }
 
-fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, remaining: &str, root_word: &str, root_dna: u16, current_penalty: f32, valid_paths: &mut Vec<PathResult>) {
+    fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, remaining: &str, root_word: &str, root_dna: u16, current_penalty: f32, valid_paths: &mut Vec<PathResult>, memo: &mut HashMap<(MorphState, usize), f32>) {
         
+        // ==========================================
+        // DİNAMİK PROGRAMLAMA: BUDAMA (PRUNING)
+        // ==========================================
+        let cache_key = (current_state.clone(), remaining.len());
+        if let Some(&best_past_penalty) = memo.get(&cache_key) {
+            // Eğer bu durağa daha önce daha düşük veya eşit bir cezayla geldiysek, bu paralel evreni YOK ET!
+            if current_penalty >= best_past_penalty { return; }
+        }
+        memo.insert(cache_key, current_penalty);
+
         if remaining.is_empty() {
             // TÜRKÇE MUTLAK BİTİŞ KURALLARI:
             // Kelime hangi ekleri aldıktan sonra yasal olarak cümlede durabilir?
@@ -118,14 +202,15 @@ fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, re
                 MorphState::Tense | MorphState::Question | MorphState::EndOfWord |
                 MorphState::Possessive | MorphState::Plural // İsimler çoğul veya iyelikle de bitebilir
             );
-                if current_stem.contains("ora") || current_stem.contains("götür") {
-                println!("  [X-RAY BİTİŞ] Kelime: '{}' | Durak: {:?} | Kabul Edildi mi: {}", 
-                    current_stem, current_state, is_valid_termination);
-            }
+                // if current_stem.contains("ora") || current_stem.contains("götür") {
+                // println!("  [X-RAY BİTİŞ] Kelime: '{}' | Durak: {:?} | Kabul Edildi mi: {}", 
+                //     current_stem, current_state, is_valid_termination);
+                // }
             if is_valid_termination {
                 valid_paths.push(PathResult {
                     final_stem: current_stem.to_string(),
                     total_penalty: current_penalty,
+                    final_state: current_state.clone(), // YENİ
                 });
             } else {
                 // SESSİZ İPTAL: Kelime bitti ama FSM havada kaldı (Örn: Sadece Olumsuzluk eki alıp bitmiş 'gitme-').
@@ -138,11 +223,11 @@ fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, re
             for suffix in suffixes {
                 // 1. KULLANICIYI ANLAMA (Puanlama için Sentez)
                 // "cAm" -> "cem" veya "cam" üretir.
-                let mut synthesized_for_match = synthesize_suffix(current_stem, root_dna, suffix.flags, &suffix.base_form);
+                let synthesized_for_match = synthesize_suffix(current_stem, root_dna, suffix.flags, &suffix.base_form);
                 
                 // 2. RESMİ ÇIKTI (Ekrana Basılacak Sentez)
                 // Eğer JSON'da "AcAğIm" tanımlıysa onu sentezle, yoksa normal sentezi kullan!
-                let mut synthesized_for_output = if let Some(ref canonical) = suffix.canonical_form {
+                let synthesized_for_output = if let Some(ref canonical) = suffix.canonical_form {
                     // Makro eki resmi formata çevir ("AcAğIm" -> "eceğim")
                     synthesize_suffix(current_stem, root_dna, suffix.flags, canonical)
                 } else {
@@ -157,10 +242,9 @@ fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, re
                 let vowels = ['a', 'e', 'ı', 'i', 'o', 'ö', 'u', 'ü', 'A', 'E', 'I', 'İ', 'O', 'Ö', 'U', 'Ü'];
                 
                 let last_char = current_stem.chars().last().unwrap_or(' ');
-                let stem_ends_with_vowel = vowels.contains(&last_char);
+                let _stem_ends_with_vowel = vowels.contains(&last_char); // Sarı uyarı gitmesi için _ eklendi
 
-                // BUFFER S, N, Y Mantığı
-
+                // BUFFER S, N, Y Mantığı burada phonology'ye devredilmişti, o yüzden burası boş.
 
                 // Ünsüz Yumuşaması Motoru (Hem eşleşme hem çıktı için ayrı ayrı çalışmalı)
                 if vowels.contains(&first_char_match) {
@@ -189,11 +273,11 @@ fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, re
                     // Yani "götür" + "eceğim" olur!
                     let new_stem = format!("{}{}", actual_stem_output, synthesized_for_output);
                     
-                    // X-RAY 1: Hangi ek nasıl sentezlendi?
-                    if actual_stem_output == "ora" || actual_stem_output.starts_with("götür") {
-                        println!("  [X-RAY] Gövde: '{}' | Ek: '{}' -> Üretilen: '{}' | Sonuç: '{}'", 
-                            actual_stem_output, suffix.id, synthesized_for_output, new_stem);
-                    }
+                    // X-RAY 1: Hangi ek nasıl sentezlendi? (Gerektiğinde açabilirsin)
+                    // if actual_stem_output == "ora" || actual_stem_output.starts_with("götür") {
+                    //     println!("  [X-RAY] Gövde: '{}' | Ek: '{}' -> Üretilen: '{}' | Sonuç: '{}'", 
+                    //         actual_stem_output, suffix.id, synthesized_for_output, new_stem);
+                    // }
                     self.traverse_fsm_viterbi(
                         suffix.output_state.clone(), 
                         &new_stem, 
@@ -201,10 +285,11 @@ fn traverse_fsm_viterbi(&self, current_state: MorphState, current_stem: &str, re
                         root_word,
                         root_dna, 
                         current_penalty + penalty, 
-                        valid_paths
+                        valid_paths,
+                        memo
                     );
                 }
             }
         }
-    }
+    } 
 }
